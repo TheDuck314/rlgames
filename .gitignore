@@ -1,0 +1,7 @@
+graphics.py
+*.pyc
+logs/
+replays/
+checkpoints/
+notes.txt
+*.sh
