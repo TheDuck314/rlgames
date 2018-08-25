@@ -1,4 +1,4 @@
-from GameLoop import play_game
+from util import GameLoop
 
 class PeriodicReplayWriter:
     def __init__(self, game_type, agents, period, outdir):
@@ -22,6 +22,6 @@ class PeriodicReplayWriter:
 
 
     def play_and_write(self, out_fn):
-        play_game(self.game_type(), self.agents).save(out_fn)
+        GameLoop.play_game(self.game_type(), self.agents).save(out_fn)
         print "saved {}".format(out_fn)
 

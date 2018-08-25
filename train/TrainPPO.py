@@ -1,22 +1,31 @@
 #!/usr/bin/python
+import sys
+from os import path
+sys.path.append(path.dirname(path.dirname(__file__)))
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="-1"    
 
 import tensorflow as tf
-import numpy as np
 from tensorflow.core.framework import summary_pb2
+import numpy as np
 import datetime
 import os
+import time
 
 import Checkpoint
-import GameLoop
 from Annealers import *
 from Sampler import Sampler
 from PeriodicReplayWriter import PeriodicReplayWriter
-from NPlaceGame import NPlaceGame
-from NPlaceGameTFAgent import NPlaceGameTFAgent
-from ShootGame import ShootGame
-from ShootGameTFAgent import ShootGameTFAgent
-from SimpleSoccerGame import SimpleSoccerGame, SimpleSoccerDumbAgent
-from SimpleSoccerGameTFAgent import SimpleSoccerGameTFAgent
+
+from util import GameLoop
+
+from games.NPlaceGame import NPlaceGame
+from agents.NPlaceGameTFAgent import NPlaceGameTFAgent
+from games.ShootGame import ShootGame
+from agents.ShootGameTFAgent import ShootGameTFAgent
+from games.SimpleSoccerGame import SimpleSoccerGame, SimpleSoccerDumbAgent
+from agents.SimpleSoccerGameTFAgent import SimpleSoccerGameTFAgent
 
 def make_summary(name, val):
     return summary_pb2.Summary(value=[summary_pb2.Summary.Value(tag=name, simple_value=val)])
@@ -63,17 +72,19 @@ def train(game_type, agent_type, annealer=None):
     rew_buf = []
     adv_buf = []
 
-    prr = PeriodicReplayWriter(game_type=game_type, agents=agents, period=2, outdir="/home/greg/coding/ML/rl/replays")
+    prr = PeriodicReplayWriter(game_type=game_type, agents=agents, period=2000, outdir="/home/greg/coding/ML/rlgames/replays")
 
     merged_sum_op = tf.summary.merge_all()
-    log_dir = os.path.join("/home/greg/coding/ML/rl/logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + hyper_string)
+    log_dir = os.path.join("/home/greg/coding/ML/rlgames/logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + hyper_string)
     sum_wri = tf.summary.FileWriter(log_dir, graph=sess.graph, flush_secs=5)
 
     saver = tf.train.Saver(tf.trainable_variables(), max_to_keep=5, keep_checkpoint_every_n_hours=0.5)
-    ckpt_dir = os.path.join("/home/greg/coding/ML/rl", "checkpoints")
+    ckpt_dir = os.path.join("/home/greg/coding/ML/rlgames", "checkpoints")
     frames_between_ckpts = 5000
     train_frames = Checkpoint.optionally_restore_from_checkpoint(sess, saver, ckpt_dir)
     last_ckpt_frame = train_frames
+
+    start_time = time.time()
 
     iteration = 0
     while True:
@@ -132,7 +143,9 @@ def train(game_type, agent_type, annealer=None):
 
         iteration += 1
         train_frames += sampler.num_examples
-        print "iteration {}: finished training. total training frames = {}".format(iteration, train_frames)
+        cur_time = time.time()
+        train_frames_per_second = train_frames / (cur_time - start_time)
+        print "iteration {}: finished training. total training frames = {}, overall train frames/s = {}".format(iteration, train_frames, train_frames_per_second)
 
         if train_frames - last_ckpt_frame >= frames_between_ckpts:
             saver.save(sess, os.path.join(ckpt_dir, "model.ckpt"), global_step=train_frames)

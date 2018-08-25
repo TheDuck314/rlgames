@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import math
 
-from NPlaceGame import *
+from games.NPlaceGame import *
 
 class NPlaceGameTFAgent:
     def __init__(self, sess):

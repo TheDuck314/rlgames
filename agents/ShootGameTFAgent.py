@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import math
 
-from ShootGame import *
+from games.ShootGame import *
 
 def linear_layer(inputs, Nin, Nout, name):
     stddev = 0.1 * math.sqrt(2.0 / Nin)

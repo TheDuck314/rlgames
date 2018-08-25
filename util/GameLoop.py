@@ -2,7 +2,6 @@
 
 import pickle
 
-from DumbGame import *
 from Experience import *
 
 class GameResult:

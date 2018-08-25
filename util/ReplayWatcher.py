@@ -1,6 +1,8 @@
 #!/usr/bin/python
-
 import sys
+from os import path
+sys.path.append(path.dirname(path.dirname(__file__)))
+
 import os
 import time
 

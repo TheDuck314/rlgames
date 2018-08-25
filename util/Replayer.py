@@ -1,15 +1,15 @@
 from GameLoop import GameResult
-from NPlaceGame import *
-from SlideGame import *
-from ShootGame import *
-from SimpleSoccerGame import *
+from games.NPlaceGame import *
+from games.SlideGame import *
+from games.ShootGame import *
+from games.SimpleSoccerGame import *
 
 from graphics import *
 
 class Replayer:
     @staticmethod
     def show(game_result, fn=None):
-        assert isinstance(game_result, GameResult)
+        assert "true_states" in game_result.__dict__
         assert len(game_result.true_states) > 0
 
         # peek at the type of the first state to decide how to show the replay
