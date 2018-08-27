@@ -1,4 +1,7 @@
 #!/usr/bin/python
+import sys
+from os import path
+sys.path.append(path.dirname(path.dirname(__file__)))
 
 import tensorflow as tf
 from tensorflow.core.framework import summary_pb2
@@ -6,17 +9,17 @@ import datetime
 import os
 
 import Checkpoint
-import GameLoop
+from util import GameLoop
 from Annealers import *
 from PeriodicReplayWriter import PeriodicReplayWriter
-from DumbGame import DumbGame
-from DumbGameTFAgent import DumbGameTFAgent
-from NPlaceGame import NPlaceGame
-from NPlaceGameTFAgent import NPlaceGameTFAgent
-from ShootGame import ShootGame
-from ShootGameTFAgent import ShootGameTFAgent
-from SimpleSoccerGame import SimpleSoccerGame, SimpleSoccerDumbAgent
-from SimpleSoccerGameTFAgent import SimpleSoccerGameTFAgent
+from games.DumbGame import DumbGame
+from agents.DumbGameTFAgent import DumbGameTFAgent
+from games.NPlaceGame import NPlaceGame
+from agents.NPlaceGameTFAgent import NPlaceGameTFAgent
+from games.ShootGame import ShootGame
+from agents.ShootGameTFAgent import ShootGameTFAgent
+from games.SimpleSoccerGame import SimpleSoccerGame
+from agents.SimpleSoccerGameTFAgent import SimpleSoccerGameTFAgent
 
 def make_summary(name, val):
     return summary_pb2.Summary(value=[summary_pb2.Summary.Value(tag=name, simple_value=val)])
@@ -25,14 +28,14 @@ def train(game_type, agent_type, annealer=None):
     sess = tf.Session(config=tf.ConfigProto(log_device_placement=False))
 
     agent = agent_type(sess)
-#    agents = [agent] * game_type.get_num_agents()
-    agents = [agent, SimpleSoccerDumbAgent()]
+    agents = [agent] * game_type.get_num_agents()
 
     # hyperparameters
     gamma = 0.98
     gae_lambda = 0.95
-    #learning_rate = 0.0001
     learning_rate = 0.0003
+    #learning_rate = 0.03
+    #learning_rate = 0.001
     minibatch_size = 32  # experiences in each training batch
     #minibatch_size = 1000  # experiences in each training batch
     #value_loss_coef = 0.3
@@ -62,7 +65,7 @@ def train(game_type, agent_type, annealer=None):
     rew_buf = []
     adv_buf = []
 
-    prr = PeriodicReplayWriter(game_type=game_type, agents=agents, period=50, outdir="/home/greg/coding/ML/rl/replays")
+    prr = PeriodicReplayWriter(game_type=game_type, agents=agents, period=50, outdir="/home/greg/coding/ML/rlgames/replays")
 
     merged_sum_op = tf.summary.merge_all()
     log_dir = os.path.join("/home/greg/coding/ML/rl/logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "_" + hyper_string)
@@ -150,9 +153,9 @@ def train(game_type, agent_type, annealer=None):
 
 
 if __name__ == "__main__":
-    #train(ShootGame, ShootGameTFAgent)
-    #train(NPlaceGame, NPlaceGameTFAgent)
-#    train(SimpleSoccerGame, SimpleSoccerGameTFAgent, SimpleSoccerRewardAnnealer)
-    train(SimpleSoccerGame, SimpleSoccerGameTFAgent)
     #train(DumbGame, DumbGameTFAgent)
+    #train(NPlaceGame, NPlaceGameTFAgent)
+    #train(ShootGame, ShootGameTFAgent)
+    #train(SimpleSoccerGame, SimpleSoccerGameTFAgent, SimpleSoccerRewardAnnealer)
+#    train(SimpleSoccerGame, SimpleSoccerGameTFAgent)
 

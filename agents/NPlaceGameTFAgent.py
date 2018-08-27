@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import math
 
-from games.NPlaceGame import *
+from games.NPlaceGame import NPlaceGame, Action
 
 class NPlaceGameTFAgent:
     def __init__(self, sess):
@@ -53,9 +53,9 @@ class NPlaceGameTFAgent:
             self.chosen_action_ph: np.array([exp.action.move for exp in experiences]),
         }
 
-    def choose_action(self, state):
+    def choose_actions(self, states):
         feed_dict = {
-            self.state_ph: self.states_to_tensor([state])
+            self.state_ph: self.states_to_tensor(states)
         }
         [
             choice,
@@ -66,13 +66,17 @@ class NPlaceGameTFAgent:
             self.log_p_greedy_action_op if self.be_greedy else self.log_p_action_op,
             self.value_op
         ], feed_dict=feed_dict)
-        assert choice.shape == (1,), "choice = {}".format(choice)
-        assert value_est.shape == (1,), "value_est = {}".format(value_est)
+        assert choice.shape == (len(states),), "choice = {}".format(choice)
+        assert log_p_action.shape == (len(states),), "log_p_action = {}".format(log_p_action)
+        assert value_est.shape == (len(states),), "value_est = {}".format(value_est)
 
-        action = NPlaceGameAction(choice[0])
-        log_p_action = log_p_action[0]  # one element array -> float
-        value_est = value_est[0]  # one element array -> float
-        return action, log_p_action, value_est
+        ret = []
+        for i in range(len(states)):
+            one_action = Action(choice[i])
+            one_log_p_action = log_p_action[i]
+            one_value_est = value_est[i]
+            ret.append((one_action, one_log_p_action, one_value_est))
+        return ret
 
     def print_debug_info(self):
         np.set_printoptions(precision=3, suppress=True)

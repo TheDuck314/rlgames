@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import math
 
-from games.SimpleSoccerGame import SimpleSoccerGame, action_to_int, int_to_action
+from games.SimpleTeamSoccerGame import SimpleTeamSoccerGame, action_to_int, int_to_action
 
 def linear_layer(inputs, Nin, Nout, name):
     stddev = 0.1 * math.sqrt(2.0 / Nin)
@@ -14,18 +14,16 @@ def linear_layer(inputs, Nin, Nout, name):
 def relu_fully_connected_layer(inputs, Nin, Nout, name):
     return tf.nn.relu(linear_layer(inputs, Nin, Nout, name), name=name+"_activations")
 
-class SimpleSoccerGameTFAgent:
+class SimpleTeamSoccerTFAgent:
     def __init__(self, sess):
         self.sess = sess  # tensorflow Session
 
         self.be_greedy = False
 
-        self.state_size = 14  # (x,y,vx,vy) for agent0, agent1, puck (12) + haspuck0, haspuck1 (2)
+        self.state_size = 5 * SimpleTeamSoccerGame.get_num_agents() + 4 # (x,y,vx,vy,haspuck) for agents, (x,y,vx,vy) for puck
 
-        # we output a rank-2 tensor of probabilities of shape (dim, 3)
         self.num_accels = 3  # accel of -1 or 0 or 1 in each direction
-        #self.output_size = 2 * self.num_accels + 2  # logit of each accel in each dim, plus logit of (noshoot, shoot)
-        self.output_size = self.num_accels**2 * 2  # logit of each accel in each dim, plus logit of (noshoot, shoot)
+        self.output_size = self.num_accels**2 * 2  # total number of actions is (3 accels per dim)**2 * (shoot or no shoot)
         assert self.output_size == 18
 
         self.state_ph = tf.placeholder(tf.float32, shape=[None, self.state_size], name="state")  # shape: (batchsize, 3, dim)
@@ -53,16 +51,16 @@ class SimpleSoccerGameTFAgent:
 
     def states_to_tensor(self, states):
         ret = np.zeros((len(states), self.state_size))
-        assert self.state_size == 14
+        assert self.state_size == 24
         for i, state in enumerate(states):
-            ret[i, 0:2]   = state.agent0.pos
-            ret[i, 2:4]   = state.agent0.vel
-            ret[i, 4:6]   = state.agent1.pos
-            ret[i, 6:8]   = state.agent1.vel
-            ret[i, 8:10]  = state.puck.pos
-            ret[i, 10:12] = state.puck.vel
-            ret[i, 12]    = state.haspuck0
-            ret[i, 13]    = state.haspuck1
+            offset = 0
+            for agent in state.agents:
+                ret[i, offset  :offset+2]   = agent.kin.pos
+                ret[i, offset+2:offset+4]   = agent.kin.vel
+                ret[i, offset+4]            = agent.haspuck
+                offset += 5
+            ret[i, offset  :offset+2] = state.puck.kin.pos
+            ret[i, offset+2:offset+4] = state.puck.kin.vel
         return ret
 
     def make_train_feed_dict(self, experiences):

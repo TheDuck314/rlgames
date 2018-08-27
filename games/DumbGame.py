@@ -4,16 +4,16 @@
 import copy
 import numpy as np
 
-class DumbGameState:
+class GameState:
     """ DumbGame doesn't really have any state """
     def __init__(self):
         pass
 
     def __repr__(self):
-        return "DumbGameState()"
+        return "DumbGame.GameState()"
 
 
-class DumbGameAction:
+class Action:
     """ Actions are integers in [0, 1, ..., N-1] """
     def __init__(self, choice):
         assert isinstance(choice, int)
@@ -21,26 +21,29 @@ class DumbGameAction:
         self.choice = choice
  
     def __repr__(self):
-        return "DumbGameAction(choice={})".format(self.choice)
+        return "DumbGame.Action(choice={})".format(self.choice)
 
 
-class DumbGameDumbAgent:
+class DumbAgent:
     def __init__(self):
         pass
 
-    def choose_action(self, state):
+    def _choose_action(self, state):
         choice = 1 if np.random.rand() < 0.5 else 0
         log_p = np.log(0.5)
-        action = DumbGameAction(choice)
+        action = Action(choice)
         value_est = np.random.randn()
         return action, log_p, value_est
+
+    def choose_actions(self, states):
+        return [self._choose_action(st) for st in states]
 
 
 class DumbGame:
     win_probs = [0.1, 0.5, 0.1, 0.9]  # no peeking!
 
     def __init__(self):
-        self.state = DumbGameState()
+        self.state = GameState()
         self.finished = False
         pass
 

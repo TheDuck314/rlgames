@@ -9,21 +9,25 @@ import copy
 import math
 from collections import namedtuple
 
-ShootGameObjState = namedtuple("ShootGameObjState", ["position", "velocity"])
-ShootGameState = namedtuple("ShootGameState", ["agent", "puck", "haspuck"])
-ShootGameAction = namedtuple("ShootGameAction", ["accels", "shoot"])
+ObjState = namedtuple("ObjState", ["position", "velocity"])
+GameState = namedtuple("GameState", ["agent", "puck", "haspuck"])
+Action = namedtuple("Action", ["accels", "shoot"])
 
-class ShootGameDumbAgent:
+class DumbAgent:
     def __init__(self):
         pass
 
-    def choose_action_and_value_est(self, state):
+    def _choose_action(self, state):
         accels = np.array([np.random.choice([-1, 0, 1], p=[1/3.0, 1/3.0,  1/3.0])
                            for d in range(ShootGame.dim)])
         shoot = np.random.rand() < 0.1
-        action = ShootGameAction(accels=accels, shoot=shoot)
+        action = Action(accels=accels, shoot=shoot)
+        log_p = -1.0  # whatever
         value_est = np.random.randn()
-        return action, value_est
+        return action, log_p, value_est
+
+    def choose_actions(self, states):
+        return map(self._choose_action, states)
 
 def sample_from_ball(N, radius):
     while True:
@@ -55,18 +59,19 @@ class ShootGame:
     dim = 2
 
     def __init__(self):
-        self.state = ShootGameState(
-            agent = ShootGameObjState(position = sample_from_ball(self.dim, self.init_agent_pos_radius),
-                                      velocity = sample_from_ball(self.dim, self.init_agent_vel_radius)),
-            puck = ShootGameObjState(position = sample_from_ball(self.dim, self.init_puck_pos_radius),
-                                     velocity = sample_from_ball(self.dim, self.init_puck_vel_radius)),
+        self.state = GameState(
+            agent = ObjState(position = sample_from_ball(self.dim, self.init_agent_pos_radius),
+                             velocity = sample_from_ball(self.dim, self.init_agent_vel_radius)),
+            puck = ObjState(position = sample_from_ball(self.dim, self.init_puck_pos_radius),
+                            velocity = sample_from_ball(self.dim, self.init_puck_vel_radius)),
             haspuck = False,
         )
         self.frames_left = self.max_frames
         self.finished = False
         pass
 
-    def get_num_agents(self):
+    @classmethod
+    def get_num_agents(cls):
         return 1
 
     def get_observed_states(self):
@@ -134,10 +139,10 @@ class ShootGame:
         #print "final new_haspuck = {}".format(new_haspuck)
         #print "final puck_new_pos = {}".format(puck_new_pos)
         #print "final puck_new_vel = {}".format(puck_new_vel)
-        self.state = ShootGameState(
-            agent = ShootGameObjState(position = agent_new_pos,
+        self.state = GameState(
+            agent = ObjState(position = agent_new_pos,
                                       velocity = agent_new_vel),
-            puck = ShootGameObjState(position = puck_new_pos,
+            puck = ObjState(position = puck_new_pos,
                                      velocity = puck_new_vel),
             haspuck = new_haspuck,
         )

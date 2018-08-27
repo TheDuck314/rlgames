@@ -3,6 +3,7 @@
 import pickle
 
 from Experience import *
+from TimeTracker import TimeTracker
 
 class GameResult:
     """ A GameResult contains all the data that results from playing a game:
@@ -33,6 +34,7 @@ class GameResult:
 def play_game(game, agents):
     """ Given a game and some agents, run the game step by step until it's finished. 
     Return a GameResult. """
+    time_tracker = TimeTracker()
     num_agents = game.get_num_agents()
     assert num_agents == len(agents), "{} != {}".format(num_agents, len(agents))
 
@@ -40,6 +42,8 @@ def play_game(game, agents):
 
     # capture the initial game state
     result.true_states.append(game.get_true_state())
+
+    all_agents_same = all(ag == agents[0] for ag in agents[1:])
 
     while not game.is_finished():
         # Get the state observed by each of the agents
@@ -56,14 +60,34 @@ def play_game(game, agents):
         actions = []
         log_p_actions = []
         value_ests = []
-        for agent, state in zip(agents, states):
-            action, log_p_action, value_est = agent.choose_action(state)
-            actions.append(action)
-            log_p_actions.append(log_p_action)
-            value_ests.append(value_est)
+        if all_agents_same:
+            # silly optimization: all agents are really identical, so get
+            # the single agent to choose everyone's actions in a batch
+            time_tracker.start("choose_action")
+            choices = agents[0].choose_actions(states)
+            assert len(choices) == len(states)
+            time_tracker.end("choose_action")
+            for (action, log_p_action, value_est) in choices:
+                actions.append(action)
+                log_p_actions.append(log_p_action)
+                value_ests.append(value_est)
+        else:
+            for agent, state in zip(agents, states):
+                time_tracker.start("choose_action")
+                choices = agent.choose_actions([state])
+                assert len(choices) == 1, choices
+                action, log_p_action, value_est = choices[0]
+                time_tracker.end("choose_action")
+                actions.append(action)
+                log_p_actions.append(log_p_action)
+                value_ests.append(value_est)
+
+
         # give the model the actions, and have it simulate a step
         # and return any immediate rewards
+        time_tracker.start("simulate_step")
         rewards = game.simulate_step(actions)
+        time_tracker.end("simulate_step")
 
         # record the Experience of each agent on this time step
         for i in range(num_agents):
@@ -77,5 +101,8 @@ def play_game(game, agents):
             ))
 
         result.true_states.append(game.get_true_state())
-
+    
+    time_tracker.end()
+    #print "game timings:", time_tracker
     return result
+

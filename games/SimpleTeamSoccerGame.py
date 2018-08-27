@@ -9,7 +9,12 @@ import copy
 import math
 from collections import namedtuple
 
-class SimpleTeamSoccerKinematicState:
+BoundingBox = namedtuple("BoundingBox", ["x1", "y1", "x2", "y2"])
+
+def _inverted_bb(bb):
+    return BoundingBox(-bb.x1, bb.y1, -bb.x2, bb.y2)
+
+class KinematicState:
     def __init__(self, pos, vel):
         self.pos = pos
         self.vel = vel
@@ -29,11 +34,11 @@ class SimpleTeamSoccerKinematicState:
             if self.vel[d] > 0:
                 self.vel[d] *= -restitution
 
-    def enforce_bounding_box(self, x1, y1, x2, y2, restitution):
-        self.enforce_pos_lower_bound(0, x1, restitution)
-        self.enforce_pos_upper_bound(0, x2, restitution)
-        self.enforce_pos_lower_bound(1, y1, restitution)
-        self.enforce_pos_upper_bound(1, y2, restitution)
+    def enforce_bounding_box(self, bb, restitution):
+        self.enforce_pos_lower_bound(0, bb.x1, restitution)
+        self.enforce_pos_upper_bound(0, bb.x2, restitution)
+        self.enforce_pos_lower_bound(1, bb.y1, restitution)
+        self.enforce_pos_upper_bound(1, bb.y2, restitution)
 
     def step(self, accel, friction_coef):
         self.pos += self.vel
@@ -46,28 +51,88 @@ class SimpleTeamSoccerKinematicState:
         return ret
 
     def copy(self):
-        return SimpleTeamSoccerKinematicState(
+        return KinematicState(
             pos = self.pos.copy(),
             vel = self.vel.copy(),
         )
 
+    def vel_unit_vec(self):
+        return self.vel / np.sqrt(np.sum(np.square(self.vel)))
 
-SimpleTeamSoccerState = namedtuple("SimpleTeamSoccerState", ["agent0", "agent1", "puck", "haspuck0", "haspuck1"])
-SimpleTeamSoccerAction = namedtuple("SimpleTeamSoccerAction", ["accels", "shoot"])
+class AgentState:
+    def __init__(self, kin, haspuck, bounding_box):
+        self.kin = kin
+        self.haspuck = haspuck
+        self.bounding_box = bounding_box
+
+    def copy(self):
+        return AgentState(
+            kin = self.kin.copy(),
+            haspuck = self.haspuck,
+            bounding_box = self.bounding_box
+        )
+
+    def inverted(self):
+        return AgentState(
+            kin = self.kin.inverted(),
+            haspuck = self.haspuck,
+            bounding_box = _inverted_bb(self.bounding_box),
+        )
+
+    def __repr__(self):
+        return "Agent(kin={}, haspuck={})".format(self.kin, self.haspuck)
+
+class PuckState:
+    def __init__(self, kin, bounding_box):
+        self.kin = kin
+        self.bounding_box = bounding_box
+
+    def inverted(self):
+        return PuckState(
+            kin = self.kin.inverted(),
+            bounding_box = _inverted_bb(self.bounding_box),
+        )
+
+    def copy(self):
+        return PuckState(
+            kin = self.kin.copy(),
+            bounding_box = self.bounding_box
+        )
+
+    def __repr__(self):
+        return "Puck(kin={})".format(self.kin)
+
+GameState = namedtuple("GameState", ["agents", "puck"])
+Action = namedtuple("Action", ["accels", "shoot"])
+
+def int_to_action(choice):
+    assert choice in range(18)
+    a = choice % 3
+    choice /= 3
+    b = choice % 3
+    choice /= 3
+    c = choice
+    assert a in [0, 1, 2]
+    assert b in [0, 1, 2]
+    assert c in [0, 1]
+    return Action(accels=np.array([a, b]), shoot=c)
+
+def action_to_int(action):
+    return 9*action.shoot + 3*action.accels[1] + action.accels[0]
 
 
-class SimpleTeamSoccerDumbAgent:
+class DumbAgent:
     def __init__(self):
         pass
 
-    def choose_action(self, state):
-        accels = np.array([np.random.choice(3, p=[1/3.0, 1/3.0,  1/3.0])
-                           for d in range(2)])
-        shoot = 1 if np.random.rand() < 0.1 else 0
-        action = SimpleTeamSoccerAction(accels=accels, shoot=shoot)
+    def _choose_action(self, state):
+        action = action_to_int(np.random.randint(18))
         value_est = 0.0  #np.random.randn()
-        log_p_action = -0.5  # whatever
+        log_p_action = np.log(1/18.0)
         return action, log_p_action, value_est
+
+    def choose_actions(self, states):
+        return map(self._choose_action, states)
 
     def set_be_greedy(self, be_greedy):
         pass
@@ -81,69 +146,96 @@ def _sample_from_circle(radius):
         x *= radius
         return x
 
-def _sample_from_rect(x1, y1, x2, y2):
-    return np.array([x1 + np.random.rand() * (x2 - x1),
-                     y1 + np.random.rand() * (y2 - y1)])
+def _sample_from_bb(bb):
+    return np.array([bb.x1 + np.random.rand() * (bb.x2 - bb.x1),
+                     bb.y1 + np.random.rand() * (bb.y2 - bb.y1)])
 
 
 class SimpleTeamSoccerGame:
     max_x = 3.0
     max_y = 1.0
-    init_agent_vel_radius = 0.2
-    init_puck_vel_radius = 0.2
+    init_agent_vel_radius = 0.1
+    init_puck_vel_radius = 0.1
 
-    noise_force_sigma = 0.01
-    force = 0.15  # agent acceleration
-    agent_friction_coef = 0.5  # friction acceleration = -friction_coef * velocity
-    puck_friction_coef = 0.02  # friction acceleration = -friction_coef * velocity
-    #puck_shoot_speed = 0.35
-    puck_shoot_speed = 0.43
+    noise_force_sigma = 0.005
+    force = 0.023  # agent acceleration
+    agent_friction_coef = 0.25  # friction acceleration = -friction_coef * velocity
+    puck_friction_coef = 0.01  # friction acceleration = -friction_coef * velocity
+    puck_shoot_speed = 0.35
     puck_acquire_dist = 0.3  # agent picks up pick if it's within this range
     agent_restitution_coef = 0.3
     puck_restitution_coef = 0.9
 
     win_reward = 1.0
     loss_reward = 0.0  # should anneal this from 0 to -1
-    max_frames = 100   # should anneal this from 100 to 1000
+    max_frames = 200   # should anneal this from 200 to 2000
+
+    team_size = 2
 
     def __init__(self):
-        self.state = SimpleTeamSoccerState(
-            agent0 = SimpleTeamSoccerKinematicState(
-                pos = _sample_from_rect(-self.max_x, -self.max_y, 0.0, self.max_y),
-                vel = _sample_from_circle(self.init_agent_vel_radius)),
-            agent1 = SimpleTeamSoccerKinematicState(
-                pos = _sample_from_rect(0.0, -self.max_y, self.max_x, self.max_y),
-                vel = _sample_from_circle(self.init_agent_vel_radius)),
-            puck = SimpleTeamSoccerKinematicState(
-                pos = _sample_from_rect(-self.max_x, -self.max_y, self.max_x, self.max_y),
-                #pos = _sample_from_rect(-self.max_x, -self.max_y, 0.0, self.max_y),
-                vel = _sample_from_circle(self.init_puck_vel_radius)),
-            haspuck0 = False,
-            haspuck1 = False,
+        agent_states = []
+        for i in range(2 * self.team_size):
+            is_team0 = i < self.team_size
+            bounding_box = BoundingBox(
+                x1 = -self.max_x if is_team0 else 0.0,
+                y1 = -self.max_y,
+                x2 = 0.0 if is_team0 else self.max_x,
+                y2 = self.max_y,
+            )
+            agent_states.append(AgentState(
+                kin = KinematicState(
+                    pos = _sample_from_bb(bounding_box),
+                    vel = _sample_from_circle(self.init_agent_vel_radius),
+                ),
+                haspuck = False,
+                bounding_box = bounding_box,
+            ))
+        puck_bounding_box = BoundingBox(
+            x1 = -np.inf,
+            y1 = -self.max_y,
+            x2 = np.inf,
+            y2 = self.max_y
         )
+        puck_state = PuckState(
+            kin = KinematicState(
+                pos = _sample_from_bb(BoundingBox(-self.max_x, -self.max_y, self.max_x, self.max_y)),
+                vel = _sample_from_circle(self.init_puck_vel_radius),
+            ),
+            bounding_box = puck_bounding_box,
+        )
+        self.state = GameState(agents=agent_states, puck=puck_state)
         self.frames_left = self.max_frames
         self.finished = False
 
     @classmethod
     def get_num_agents(cls):
-        return 2
+        return 2 * cls.team_size
 
-    def get_inverted_state(self):
-        return SimpleTeamSoccerState(
-            agent0   = self.state.agent1.inverted(),
-            agent1   = self.state.agent0.inverted(),
-            puck     = self.state.puck.inverted(),
-            haspuck0 = self.state.haspuck1,
-            haspuck1 = self.state.haspuck0,
-        )
+    def get_observed_states(self):
+        # agents always see the state as if they are agent #0 on team0
+        team0 = self.state.agents[:self.team_size]
+        team1 = self.state.agents[self.team_size:]
+        inv_agents = [ag.inverted() for ag in self.state.agents]
+        inv_team0 = inv_agents[:self.team_size]
+        inv_team1 = inv_agents[self.team_size:]
+        inv_puck = self.state.puck.inverted()
+        ret = []
+        for i in range(self.team_size):  # team0
+            ret.append(GameState(
+                agents = [team0[i]] + team0[:i] + team0[i+1:] + team1,
+                puck = self.state.puck,
+            ))
+        for i in range(self.team_size):  # team1
+            ret.append(GameState(
+                agents = [inv_team1[i]] + inv_team1[:i] + inv_team1[i+1:] + inv_team0,
+                puck = inv_puck,
+            ))
+        return ret
 
     def get_inverted_action(self, action):
         accels = action.accels.copy()
         accels[0] = 2 - accels[0]  # map [0, 1, 2] to [2, 1, 0]
-        return SimpleTeamSoccerAction(accels=accels, shoot=action.shoot)
-
-    def get_observed_states(self):
-        return [self.state, self.get_inverted_state()]
+        return Action(accels=accels, shoot=action.shoot)
 
     def validate_action(self, action):
         assert isinstance(action.accels, np.ndarray)
@@ -157,111 +249,88 @@ class SimpleTeamSoccerGame:
     def simulate_step(self, actions):
         #print "simulate_step frames_left = {}".format(self.frames_left)
         assert not self.finished
-        assert len(actions) == 2
+        assert len(actions) == self.get_num_agents()
 
-        # agent1 sees an inverted state, so we need to invert its action
-        actions = [actions[0], self.get_inverted_action(actions[1])]
+        #print actions
 
-        for action in actions:
-            self.validate_action(action)
+        # team1 sees an inverted state, so we need to invert their actions
+        actions = actions[:self.team_size] + map(self.get_inverted_action, actions[self.team_size:])
+
+        for ac in actions:
+            self.validate_action(ac)
 
         # first do agent kinematics
-        new_agent0 = self.state.agent0.copy()
-        new_agent1 = self.state.agent1.copy()
+        new_agents = [agent.copy() for agent in self.state.agents]
 
-        # note: accels - 1 maps components in [0, 1, 2] to [-1, 0, 1]
-        new_agent0.step(
-            accel         = self.force * (actions[0].accels - 1) + self.gen_noise_force(),
-            friction_coef = self.agent_friction_coef)
-        new_agent1.step(
-            accel         = self.force * (actions[1].accels - 1) + self.gen_noise_force(),
-            friction_coef = self.agent_friction_coef)
-
-        new_agent0.enforce_bounding_box(-self.max_x,
-                                        -self.max_y,
-                                        0,
-                                        self.max_y,
-                                        self.agent_restitution_coef)
-        new_agent1.enforce_bounding_box(0,
-                                        -self.max_y,
-                                        self.max_x,
-                                        self.max_y,
-                                        self.agent_restitution_coef)
+        for ac, agent in zip(actions, new_agents):
+            # apply accelerations
+            # note: accels - 1 maps components in [0, 1, 2] to [-1, 0, 1]
+            agent.kin.step(
+                accel         = self.force * (ac.accels - 1) + self.gen_noise_force(),
+                friction_coef = self.agent_friction_coef)
+            # enforce limits of game area
+            agent.kin.enforce_bounding_box(agent.bounding_box, self.agent_restitution_coef)
 
 
-        new_haspuck0 = self.state.haspuck0
-        new_haspuck1 = self.state.haspuck1
-        assert not (new_haspuck0 and new_haspuck1)
+        # quick check that at most one agent should have the puck
+        assert sum(ag.haspuck for ag in new_agents) in [0, 1]
 
-        # next do puck kinematics and pickup/shoot
+        # do puck kinematics and pickup/shoot
         # a shot puck starts from agent's position, traveling in agent's direction,
         # with speed <puck_shoot_speed>
-        shot_this_turn0 = False
-        shot_this_turn1 = False
-        if new_haspuck0:
-            if actions[0].shoot == 1:
-                #print "agent 0 shooting!"
-                puck_new_vel = self.puck_shoot_speed * new_agent0.vel / np.sqrt(np.sum(np.square(new_agent0.vel)))
-                new_puck = SimpleTeamSoccerKinematicState(
-                    pos = new_agent0.pos + puck_new_vel,
-                    vel = puck_new_vel)
-                new_haspuck0 = False
-                shot_this_turn0 = True
-        elif new_haspuck1:
-            if actions[1].shoot == 1:
-                #print "agent 1 shooting!"
-                puck_new_vel = self.puck_shoot_speed * new_agent1.vel / np.sqrt(np.sum(np.square(new_agent1.vel)))
-                new_puck = SimpleTeamSoccerKinematicState(
-                    pos = new_agent1.pos + puck_new_vel,
-                    vel = puck_new_vel)
-                new_haspuck1 = False
-                shot_this_turn1 = True
+        shot_this_turn = [False] * (2 * self.team_size)
+        any_shot_this_turn = False
+        for i, (ac, agent) in enumerate(zip(actions, new_agents)):
+            if agent.haspuck and ac.shoot == 1:  # agent is shooting
+                puck_new_vel = self.puck_shoot_speed * agent.kin.vel_unit_vec()
+                new_puck = PuckState(
+                    kin = KinematicState(
+                        pos = agent.kin.pos + puck_new_vel,
+                        vel = puck_new_vel
+                    ),
+                    bounding_box = self.state.puck.bounding_box,
+                )
+                new_puck.kin.enforce_bounding_box(new_puck.bounding_box, self.puck_restitution_coef)
+                agent.haspuck = False
+                shot_this_turn[i] = True
+                any_shot_this_turn = True
 
-        if (not new_haspuck0) and (not new_haspuck1):
+        if not any(agent.haspuck for agent in new_agents):
             # puck is moving on its own
             # if the puck was shot it already moved for the turn.
-            # if it wasn't we need to apply its velocity and friction
-            if (not shot_this_turn0) and (not shot_this_turn1):
+            # if it wasn't shot we need to apply its velocity and friction
+            if not any_shot_this_turn:
                 new_puck = self.state.puck.copy()
-                new_puck.step(accel = np.array([0, 0]),
-                              friction_coef = self.puck_friction_coef)
-            # finally check if either agent acquires puck:
-            if new_puck.pos[0] < 0 and not shot_this_turn0:
-                if np.sqrt(np.sum(np.square(new_puck.pos - new_agent0.pos))) <= self.puck_acquire_dist:
-                    new_haspuck0 = True
-            elif new_puck.pos[0] > 0 and not shot_this_turn1:
-                if np.sqrt(np.sum(np.square(new_puck.pos - new_agent1.pos))) <= self.puck_acquire_dist:
-                    new_haspuck1 = True
+                new_puck.kin.step(accel = np.array([0, 0]),
+                                  friction_coef = self.puck_friction_coef)
+                new_puck.kin.enforce_bounding_box(new_puck.bounding_box, self.puck_restitution_coef)
+            # finally check if any agent acquires the puck:
+            for i, agent in enumerate(new_agents):
+                if shot_this_turn[i]: 
+                    continue  # can't pick up puck on turn you shot it
+                if np.sign(new_puck.kin.pos[0]) != np.sign(agent.kin.pos[0]):
+                    # can only get puck when it's on your side
+                    continue  
+                if np.sqrt(np.sum(np.square(new_puck.kin.pos - agent.kin.pos))) <= self.puck_acquire_dist:
+                    agent.haspuck = True
+                    break
 
         # if an agent has the puck then the puck moves with the agent
-        if new_haspuck0:
-            new_puck = new_agent0.copy()
-        elif new_haspuck1:
-            new_puck = new_agent1.copy()
-        else:
-            new_puck.enforce_bounding_box(
-                -np.inf,
-#                -self.max_x,
-                -self.max_y,
-                np.inf,
-                self.max_y,
-                self.puck_restitution_coef,
-            )
+        for agent in new_agents:
+            if agent.haspuck:
+                new_puck = PuckState(
+                    kin = agent.kin.copy(),
+                    bounding_box = self.state.puck.bounding_box,
+                )
 
-        self.state = SimpleTeamSoccerState(
-            agent0   = new_agent0,
-            agent1   = new_agent1,
-            puck     = new_puck,
-            haspuck0 = new_haspuck0,
-            haspuck1 = new_haspuck1,
-        )
+        self.state = GameState(agents=new_agents, puck=new_puck)
 
-        if new_puck.pos[0] < -self.max_x:  # agent1 wins
-            rewards = [self.loss_reward, self.win_reward]
+        if new_puck.kin.pos[0] < -self.max_x:  # team1 wins
+            rewards = [self.loss_reward] * self.team_size + [self.win_reward] * self.team_size
             self.finished = True
             #print "right wins!"
-        elif new_puck.pos[0] > self.max_x:  # agent2 wins
-            rewards = [self.win_reward, self.loss_reward]
+        elif new_puck.kin.pos[0] > self.max_x:  # agent2 wins
+            rewards = [self.win_reward] * self.team_size + [self.loss_reward] * self.team_size
             self.finished = True
             #print "left wins!"
         else:
@@ -269,7 +338,7 @@ class SimpleTeamSoccerGame:
             if self.frames_left <= 0:
                 self.finished = True
             #    print "game hit frame limit of {}".format(self.max_frames);
-            rewards = [0.0, 0.0]
+            rewards = [0.0] * (2 * self.team_size)
 
         #if self.finished:
         #    print "loss_reward = {}".format(self.loss_reward)

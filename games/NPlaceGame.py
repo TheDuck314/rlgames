@@ -7,35 +7,39 @@
 import numpy as np
 import copy
 
-class NPlaceGameState:
+class GameState:
     """ NPlaceGame's observable state is an int in [0, 1, ..., N-1] giving the
     agent's current location. """
     def __init__(self, location):
         self.location = location
 
     def __repr__(self):
-        return "NPlaceGameState(location={})".format(self.location)
+        return "NPlaceGame.GameState(location={})".format(self.location)
 
 
-class NPlaceGameAction:
+class Action:
     """ Actions are one of [0, 1, 2] for [left, stay, right] """
     def __init__(self, move):
         assert move in [0, 1, 2]
         self.move = move
  
     def __repr__(self):
-        return "NPlaceGameAction(move={})".format(self.move)
+        return "NPlaceGame.Action(move={})".format(self.move)
 
 
-class NPlaceGameDumbAgent:
+class DumbAgent:
     def __init__(self):
         pass
 
-    def choose_action_and_value_est(self, state):
+    def _choose_action(self, state):
         move = np.random.choice(3, p=[1/3.0, 1/3.0, 1/3.0])
-        action = NPlaceGameAction(move)
+        action = Action(move)
+        log_p = np.log(1/3.0)
         value_est = np.random.randn()
-        return action, value_est
+        return action, log_p, value_est
+
+    def choose_actions(self, states):
+        return map(self._choose_action, states)
 
 
 class NPlaceGame:
@@ -54,7 +58,7 @@ class NPlaceGame:
         return 3
 
     def __init__(self):
-        self.state = NPlaceGameState(location=np.random.randint(self.get_num_locations()))
+        self.state = GameState(location=np.random.randint(self.get_num_locations()))
         self.finished = False
         pass
 
@@ -74,7 +78,7 @@ class NPlaceGame:
         # update agent's location
         new_loc = self.state.location + (move - 1)
         new_loc = max(0, min(self.get_num_locations() - 1, new_loc))
-        self.state = NPlaceGameState(new_loc)
+        self.state = GameState(new_loc)
 
         reward = self.loc_rewards[new_loc]
 

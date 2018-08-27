@@ -9,7 +9,7 @@ import copy
 import math
 from collections import namedtuple
 
-class SimpleSoccerKinematicState:
+class KinematicState:
     def __init__(self, pos, vel):
         self.pos = pos
         self.vel = vel
@@ -46,16 +46,16 @@ class SimpleSoccerKinematicState:
         return ret
 
     def copy(self):
-        return SimpleSoccerKinematicState(
+        return KinematicState(
             pos = self.pos.copy(),
             vel = self.vel.copy(),
         )
 
 
-SimpleSoccerState = namedtuple("SimpleSoccerState", ["agent0", "agent1", "puck", "haspuck0", "haspuck1"])
-SimpleSoccerAction = namedtuple("SimpleSoccerAction", ["accels", "shoot"])
+GameState = namedtuple("GameState", ["agent0", "agent1", "puck", "haspuck0", "haspuck1"])
+Action = namedtuple("Action", ["accels", "shoot"])
 
-def make_SimpleSoccerAction(choice):
+def int_to_action(choice):
     assert choice in range(18)
     a = choice % 3
     choice /= 3
@@ -65,24 +65,27 @@ def make_SimpleSoccerAction(choice):
     assert a in [0, 1, 2]
     assert b in [0, 1, 2]
     assert c in [0, 1]
-    return SimpleSoccerAction(accels=np.array([a, b]), shoot=c)
+    return Action(accels=np.array([a, b]), shoot=c)
 
-def SimpleSoccerAction_toint(action):
+def action_to_int(action):
     return 9*action.shoot + 3*action.accels[1] + action.accels[0]
 
 
-class SimpleSoccerDumbAgent:
+class DumbAgent:
     def __init__(self):
         pass
 
-    def choose_action(self, state):
+    def _choose_action(self, state):
         accels = np.array([np.random.choice(3, p=[1/3.0, 1/3.0,  1/3.0])
                            for d in range(2)])
         shoot = 1 if np.random.rand() < 0.1 else 0
-        action = SimpleSoccerAction(accels=accels, shoot=shoot)
+        action = Action(accels=accels, shoot=shoot)
         value_est = 0.0  #np.random.randn()
         log_p_action = -0.5  # whatever
         return action, log_p_action, value_est
+
+    def choose_actions(self, states):
+        return map(self._choose_action, states)
 
     def set_be_greedy(self, be_greedy):
         pass
@@ -110,11 +113,11 @@ class SimpleSoccerGame:
     noise_force_sigma = 0.005
     force = 0.023  # agent acceleration
     agent_friction_coef = 0.25  # friction acceleration = -friction_coef * velocity
-    puck_friction_coef = 0.01  # friction acceleration = -friction_coef * velocity
-    #puck_shoot_speed = 0.35
-    #puck_shoot_speed = 0.43
-    #puck_shoot_speed = 0.55
     puck_shoot_speed = 0.35
+    #force = 0.25  # agent acceleration
+    #agent_friction_coef = 0.5  # friction acceleration = -friction_coef * velocity
+    #puck_shoot_speed = 1.0
+    puck_friction_coef = 0.01  # friction acceleration = -friction_coef * velocity
     puck_acquire_dist = 0.3  # agent picks up pick if it's within this range
     agent_restitution_coef = 0.3
     puck_restitution_coef = 0.9
@@ -124,14 +127,14 @@ class SimpleSoccerGame:
     max_frames = 200   # should anneal this from 100 to 1000
 
     def __init__(self):
-        self.state = SimpleSoccerState(
-            agent0 = SimpleSoccerKinematicState(
+        self.state = GameState(
+            agent0 = KinematicState(
                 pos = _sample_from_rect(-self.max_x, -self.max_y, 0.0, self.max_y),
                 vel = _sample_from_circle(self.init_agent_vel_radius)),
-            agent1 = SimpleSoccerKinematicState(
+            agent1 = KinematicState(
                 pos = _sample_from_rect(0.0, -self.max_y, self.max_x, self.max_y),
                 vel = _sample_from_circle(self.init_agent_vel_radius)),
-            puck = SimpleSoccerKinematicState(
+            puck = KinematicState(
                 pos = _sample_from_rect(-self.max_x, -self.max_y, self.max_x, self.max_y),
                 #pos = _sample_from_rect(-self.max_x, -self.max_y, 0.0, self.max_y),
                 vel = _sample_from_circle(self.init_puck_vel_radius)),
@@ -146,7 +149,7 @@ class SimpleSoccerGame:
         return 2
 
     def get_inverted_state(self):
-        return SimpleSoccerState(
+        return GameState(
             agent0   = self.state.agent1.inverted(),
             agent1   = self.state.agent0.inverted(),
             puck     = self.state.puck.inverted(),
@@ -157,7 +160,7 @@ class SimpleSoccerGame:
     def get_inverted_action(self, action):
         accels = action.accels.copy()
         accels[0] = 2 - accels[0]  # map [0, 1, 2] to [2, 1, 0]
-        return SimpleSoccerAction(accels=accels, shoot=action.shoot)
+        return Action(accels=accels, shoot=action.shoot)
 
     def get_observed_states(self):
         return [self.state, self.get_inverted_state()]
@@ -221,7 +224,7 @@ class SimpleSoccerGame:
             if actions[0].shoot == 1:
                 #print "agent 0 shooting!"
                 puck_new_vel = self.puck_shoot_speed * new_agent0.vel / np.sqrt(np.sum(np.square(new_agent0.vel)))
-                new_puck = SimpleSoccerKinematicState(
+                new_puck = KinematicState(
                     pos = new_agent0.pos + puck_new_vel,
                     vel = puck_new_vel)
                 new_haspuck0 = False
@@ -230,7 +233,7 @@ class SimpleSoccerGame:
             if actions[1].shoot == 1:
                 #print "agent 1 shooting!"
                 puck_new_vel = self.puck_shoot_speed * new_agent1.vel / np.sqrt(np.sum(np.square(new_agent1.vel)))
-                new_puck = SimpleSoccerKinematicState(
+                new_puck = KinematicState(
                     pos = new_agent1.pos + puck_new_vel,
                     vel = puck_new_vel)
                 new_haspuck1 = False
@@ -267,7 +270,7 @@ class SimpleSoccerGame:
                 self.puck_restitution_coef,
             )
 
-        self.state = SimpleSoccerState(
+        self.state = GameState(
             agent0   = new_agent0,
             agent1   = new_agent1,
             puck     = new_puck,

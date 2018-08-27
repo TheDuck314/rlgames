@@ -6,8 +6,7 @@ sys.path.append(path.dirname(path.dirname(__file__)))
 import os
 import time
 
-from Replayer import Replayer
-
+import Replayer
 
 def wait_for_new_replay(replay_dir, last_replay_fn=None):
     last_mtime = 0.0
